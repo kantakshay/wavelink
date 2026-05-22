@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { motion } from "framer-motion"
 import AgoraRTC from "agora-rtc-sdk-ng"
 
-import { APP_ID, TOKEN, CHANNEL } from "./agora"
+import { APP_ID, TOKEN } from "./agora"
 
 export default function App() {
 
@@ -12,9 +12,17 @@ export default function App() {
   const [joined, setJoined] = useState(false)
   const [talking, setTalking] = useState(false)
 
-  useEffect(() => {
+  const [name, setName] = useState("")
+  const [room, setRoom] = useState("")
 
-    const init = async () => {
+  const [connectedRoom, setConnectedRoom] =
+    useState("")
+
+  const joinRoom = async () => {
+
+    if (!name || !room) return
+
+    try {
 
       const client = AgoraRTC.createClient({
         mode: "rtc",
@@ -25,7 +33,7 @@ export default function App() {
 
       await client.join(
         APP_ID,
-        CHANNEL,
+        room,
         TOKEN,
         null
       )
@@ -37,11 +45,10 @@ export default function App() {
 
       await client.publish([micTrack])
 
-      micTrack.setEnabled(false)
+      await micTrack.setEnabled(false)
 
-      setJoined(true)
-
-      client.on("user-published",
+      client.on(
+        "user-published",
         async (user, mediaType) => {
 
           await client.subscribe(user, mediaType)
@@ -51,9 +58,34 @@ export default function App() {
           }
         }
       )
-    }
 
-    init()
+      setConnectedRoom(room)
+      setJoined(true)
+
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const startTalking = async () => {
+
+    if (!localTrackRef.current) return
+
+    await localTrackRef.current.setEnabled(true)
+
+    setTalking(true)
+  }
+
+  const stopTalking = async () => {
+
+    if (!localTrackRef.current) return
+
+    await localTrackRef.current.setEnabled(false)
+
+    setTalking(false)
+  }
+
+  useEffect(() => {
 
     return () => {
       localTrackRef.current?.close()
@@ -62,42 +94,172 @@ export default function App() {
 
   }, [])
 
-  const startTalking = async () => {
-    if (!localTrackRef.current) return
+  // JOIN SCREEN
+  if (!joined) {
 
-    await localTrackRef.current.setEnabled(true)
-    setTalking(true)
-  }
+    return (
 
-  const stopTalking = async () => {
-    if (!localTrackRef.current) return
+      <div className="
+        h-screen
+        bg-black
+        text-white
+        flex
+        items-center
+        justify-center
+        px-6
+      ">
 
-    await localTrackRef.current.setEnabled(false)
-    setTalking(false)
-  }
+        <div className="
+          w-full
+          max-w-sm
+          border
+          border-zinc-900
+          rounded-[32px]
+          bg-zinc-950/50
+          backdrop-blur-xl
+          p-8
+        ">
 
-  return (
-    <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
-
-      {/* HEADER */}
-      <div className="px-8 py-6 flex items-center justify-between">
-
-        <div>
-          <h1 className="text-2xl font-bold tracking-[0.25em]">
+          <h1 className="
+            text-3xl
+            font-bold
+            tracking-[0.25em]
+            text-center
+            mb-10
+          ">
             WAVELINK
           </h1>
 
-          <p className="text-green-400 text-xs mt-2 tracking-[0.3em]">
-            ROOM 07 • {joined ? "CONNECTED" : "CONNECTING"}
+          <div className="space-y-5">
+
+            <input
+              type="text"
+              placeholder="YOUR NAME"
+              value={name}
+              onChange={(e) =>
+                setName(e.target.value)
+              }
+
+              className="
+                w-full
+                bg-black
+                border
+                border-zinc-800
+                rounded-2xl
+                px-5
+                py-4
+                outline-none
+                text-sm
+                tracking-[0.15em]
+                focus:border-green-400
+                transition-all
+              "
+            />
+
+            <input
+              type="text"
+              placeholder="ROOM NAME"
+              value={room}
+              onChange={(e) =>
+                setRoom(e.target.value)
+              }
+
+              className="
+                w-full
+                bg-black
+                border
+                border-zinc-800
+                rounded-2xl
+                px-5
+                py-4
+                outline-none
+                text-sm
+                tracking-[0.15em]
+                focus:border-green-400
+                transition-all
+              "
+            />
+
+            <button
+
+              onClick={joinRoom}
+
+              className="
+                w-full
+                py-4
+                rounded-2xl
+                bg-green-400
+                text-black
+                font-bold
+                tracking-[0.2em]
+                mt-4
+                hover:scale-[1.02]
+                active:scale-[0.98]
+                transition-all
+              "
+            >
+              JOIN ROOM
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    )
+  }
+
+  // ROOM UI
+  return (
+
+    <div className="
+      h-screen
+      bg-black
+      text-white
+      flex
+      flex-col
+      overflow-hidden
+      select-none
+    ">
+
+      {/* HEADER */}
+      <div className="
+        px-4 md:px-8
+        py-4 md:py-6
+        flex
+        items-center
+        justify-between
+      ">
+
+        <div>
+
+          <h1 className="
+            text-lg md:text-2xl
+            font-bold
+            tracking-[0.25em]
+          ">
+            WAVELINK
+          </h1>
+
+          <p className="
+            text-green-400
+            text-[10px] md:text-xs
+            mt-2
+            tracking-[0.3em]
+          ">
+            {connectedRoom.toUpperCase()} • CONNECTED
           </p>
+
         </div>
 
         <div className="
-          px-4 py-2
+          px-3 md:px-4
+          py-2
           rounded-full
-          border border-green-400/20
+          border
+          border-green-400/20
           text-green-400
-          text-xs
+          text-[10px] md:text-xs
           tracking-[0.2em]
         ">
           LIVE
@@ -105,14 +267,20 @@ export default function App() {
 
       </div>
 
-      {/* ROOM */}
-      <div className="flex-1 flex items-center justify-center px-8">
+      {/* ROOM PANEL */}
+      <div className="
+        flex-1
+        flex
+        items-center
+        justify-center
+        px-4 md:px-8
+      ">
 
         <motion.div
 
           animate={
             talking
-              ? { scale: [1, 1.03, 1] }
+              ? { scale: [1, 1.05, 1] }
               : {}
           }
 
@@ -122,14 +290,18 @@ export default function App() {
           }}
 
           className="
-            w-40 h-40
+            relative
+            w-28 h-28 md:w-40 md:h-40
             rounded-full
             border
-            flex items-center justify-center
-            text-5xl font-bold
+            flex
+            items-center
+            justify-center
+            text-4xl md:text-5xl
+            font-bold
             backdrop-blur-xl
-            relative
-            transition-all duration-300
+            transition-all
+            duration-300
           "
 
           style={{
@@ -145,15 +317,17 @@ export default function App() {
 
           {talking && (
             <div className="
-              absolute inset-0
+              absolute
+              inset-0
               rounded-full
-              border border-green-400/30
+              border
+              border-green-400/30
               animate-ping
             " />
           )}
 
           <div className="relative z-10">
-            Y
+            {name.charAt(0).toUpperCase()}
           </div>
 
         </motion.div>
@@ -162,8 +336,9 @@ export default function App() {
 
       {/* PTT BUTTON */}
       <div className="
-        p-5
-        flex justify-center
+        py-4 md:py-5
+        flex
+        justify-center
         bg-black/80
         backdrop-blur-xl
       ">
@@ -181,49 +356,48 @@ export default function App() {
 
           className="
             relative
-            w-48 h-48
+            w-36 h-36 md:w-48 md:h-48
             rounded-full
             border
+            border-green-400/20
+            bg-zinc-950
             overflow-hidden
-            flex items-center justify-center
-            transition-all duration-200
+            flex
+            items-center
+            justify-center
+            shadow-[0_0_60px_rgba(0,255,153,0.12)]
           "
-
-          style={{
-            borderColor: talking
-              ? "#00ff99"
-              : "rgba(0,255,153,0.2)",
-
-            boxShadow: talking
-              ? "0 0 80px rgba(0,255,153,0.45)"
-              : "0 0 60px rgba(0,255,153,0.12)"
-          }}
         >
 
           <div className="
             absolute
-            w-28 h-28
+            w-24 h-24 md:w-28 md:h-28
             rounded-full
             bg-green-400/10
             blur-3xl
           " />
 
           <div className="
-            absolute inset-3
+            absolute
+            inset-3
             rounded-full
-            border border-green-400/20
+            border
+            border-green-400/20
             animate-pulse
           " />
 
           <div className="relative z-10 text-center">
 
-            <div className="text-4xl mb-3">
+            <div className="
+              text-3xl md:text-4xl
+              mb-2 md:mb-3
+            ">
               🎙
             </div>
 
             <p className="
               text-green-400
-              text-xs
+              text-[10px] md:text-xs
               tracking-[0.35em]
               font-semibold
             ">
