@@ -14,7 +14,7 @@ export default function App() {
 
   const [name, setName] = useState("")
   const [room, setRoom] = useState("")
-
+  const [users, setUsers] = useState([])
   const [connectedRoom, setConnectedRoom] =
     useState("")
 
@@ -38,14 +38,6 @@ export default function App() {
         null
       )
 
-      const micTrack =
-        await AgoraRTC.createMicrophoneAudioTrack()
-
-      localTrackRef.current = micTrack
-
-      await client.publish([micTrack])
-
-      await micTrack.setEnabled(false)
 
       client.on(
         "user-published",
@@ -62,34 +54,151 @@ export default function App() {
       setConnectedRoom(room)
       setJoined(true)
 
+      setUsers([
+        {
+          uid: "local",
+          name: name,
+          talking: false,
+        },
+      ])
+
+      client.on("user-joined", (user) => {
+
+        setUsers((prev) => [
+
+          ...prev,
+
+          {
+            uid: user.uid,
+            name: `User ${user.uid}`,
+            talking: false,
+          },
+
+        ])
+
+      })
+      client.on("user-left", (user) => {
+
+        setUsers((prev) =>
+          prev.filter((u) => u.uid !== user.uid)
+        )
+
+      })
     } catch (err) {
       console.error(err)
+    }
+  }
+  const leaveRoom = async () => {
+
+    try {
+
+      if (localTrackRef.current) {
+
+        localTrackRef.current.close()
+        localTrackRef.current = null
+
+      }
+
+      if (clientRef.current) {
+
+        await clientRef.current.leave()
+        clientRef.current = null
+
+      }
+
+      setTalking(false)
+      setJoined(false)
+      setRoom("")
+      setName("")
+
+      setConnectedRoom("")
+
+    } catch (err) {
+
+      console.error(err)
+
     }
   }
 
   const startTalking = async () => {
 
-    if (!localTrackRef.current) return
+    try {
 
-    await localTrackRef.current.setEnabled(true)
+      if (!localTrackRef.current) {
 
-    setTalking(true)
+        console.log("Creating microphone...")
+
+        const micTrack =
+          await AgoraRTC.createMicrophoneAudioTrack()
+
+        localTrackRef.current = micTrack
+
+        await clientRef.current.publish([micTrack])
+      }
+
+      await localTrackRef.current.setEnabled(true)
+
+      setTalking(true)
+
+      console.log("Talking ON")
+
+    } catch (err) {
+
+      console.error("Mic Error:", err)
+
+    }
   }
 
   const stopTalking = async () => {
 
-    if (!localTrackRef.current) return
+    try {
 
-    await localTrackRef.current.setEnabled(false)
+      if (!localTrackRef.current) return
 
-    setTalking(false)
+      await localTrackRef.current.setEnabled(false)
+
+      setTalking(false)
+
+      console.log("Talking OFF")
+
+    } catch (err) {
+
+      console.error(err)
+
+    }
   }
-
   useEffect(() => {
 
+    const cleanup = async () => {
+
+      try {
+
+        localTrackRef.current?.close()
+
+        if (clientRef.current) {
+          await clientRef.current.leave()
+        }
+
+      } catch (err) {
+
+        console.error(err)
+
+      }
+    }
+
+    window.addEventListener(
+      "beforeunload",
+      cleanup
+    )
+
     return () => {
-      localTrackRef.current?.close()
-      clientRef.current?.leave()
+
+      cleanup()
+
+      window.removeEventListener(
+        "beforeunload",
+        cleanup
+      )
     }
 
   }, [])
@@ -251,89 +360,115 @@ export default function App() {
           </p>
 
         </div>
+        <button
 
-        <div className="
-          px-3 md:px-4
-          py-2
-          rounded-full
-          border
-          border-green-400/20
-          text-green-400
-          text-[10px] md:text-xs
-          tracking-[0.2em]
-        ">
-          LIVE
-        </div>
+          onClick={leaveRoom}
+
+          className="
+    px-4
+    py-2
+    rounded-full
+    border
+    border-red-500/20
+    text-red-400
+    text-[10px] md:text-xs
+    tracking-[0.2em]
+    hover:bg-red-500/10
+    transition-all
+  "
+        >
+          LEAVE
+        </button>
 
       </div>
 
       {/* ROOM PANEL */}
-      <div className="
-        flex-1
-        flex
-        items-center
-        justify-center
-        px-4 md:px-8
-      ">
-
-        <motion.div
-
-          animate={
-            talking
-              ? { scale: [1, 1.05, 1] }
-              : {}
-          }
-
-          transition={{
-            repeat: Infinity,
-            duration: 1.5,
-          }}
-
+{/* ROOM PANEL */}
+<div
+  className="
+    flex-1
+    flex
+    items-center
+    justify-center
+    px-4
+    md:px-8
+  "
+>
+  <div
+    className="
+      flex
+      flex-wrap
+      justify-center
+      gap-8
+      max-w-4xl
+    "
+  >
+    {users.map((user) => (
+      <motion.div
+        key={user.uid}
+        className="flex flex-col items-center"
+        animate={
+          user.uid === "local" && talking
+            ? { scale: [1, 1.05, 1] }
+            : {}
+        }
+        transition={{
+          repeat: Infinity,
+          duration: 1.5,
+        }}
+      >
+        <div
           className="
             relative
-            w-28 h-28 md:w-40 md:h-40
+            w-24 h-24
+            md:w-32 md:h-32
             rounded-full
             border
             flex
             items-center
             justify-center
-            text-4xl md:text-5xl
+            text-3xl
+            md:text-4xl
             font-bold
-            backdrop-blur-xl
-            transition-all
-            duration-300
+            bg-zinc-950
           "
-
           style={{
-            borderColor: talking
-              ? "#00ff99"
-              : "#27272a",
+            borderColor:
+              user.uid === "local" && talking
+                ? "#00ff99"
+                : "#27272a",
 
-            boxShadow: talking
-              ? "0 0 45px rgba(0,255,153,0.45)"
-              : "none"
+            boxShadow:
+              user.uid === "local" && talking
+                ? "0 0 35px rgba(0,255,153,0.4)"
+                : "none",
           }}
         >
-
-          {talking && (
-            <div className="
-              absolute
-              inset-0
-              rounded-full
-              border
-              border-green-400/30
-              animate-ping
-            " />
+          {user.uid === "local" && talking && (
+            <div
+              className="
+                absolute
+                inset-0
+                rounded-full
+                border
+                border-green-400/30
+                animate-ping
+              "
+            />
           )}
 
           <div className="relative z-10">
-            {name.charAt(0).toUpperCase()}
+            {user.name.charAt(0).toUpperCase()}
           </div>
+        </div>
 
-        </motion.div>
-
-      </div>
-
+        <p className="mt-3 text-sm text-zinc-300">
+          {user.name}
+        </p>
+      </motion.div>
+    ))}
+  </div>
+</div>
       {/* PTT BUTTON */}
       <div className="
         py-4 md:py-5
@@ -351,8 +486,20 @@ export default function App() {
 
           onMouseDown={startTalking}
           onMouseUp={stopTalking}
-          onTouchStart={startTalking}
-          onTouchEnd={stopTalking}
+          onTouchStart={(e) => {
+            e.preventDefault()
+            startTalking()
+          }}
+
+          onTouchEnd={(e) => {
+            e.preventDefault()
+            stopTalking()
+          }}
+
+          onTouchCancel={(e) => {
+            e.preventDefault()
+            stopTalking()
+          }}
 
           className="
             relative
@@ -414,4 +561,4 @@ export default function App() {
 
     </div>
   )
-}
+} 
