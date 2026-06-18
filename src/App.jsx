@@ -105,8 +105,8 @@ export default function App() {
     }
   }, [])
 
-  const joinRoom = async () => {
-    if (!name || !room) return
+  const joinRoom = async (nameArg = name, roomArg = room) => {
+    if (!nameArg || !roomArg) return
 
     try {
       const client = AgoraRTC.createClient({
@@ -165,11 +165,11 @@ export default function App() {
         )
       })
 
-      const agoraUid = await client.join(APP_ID, envChannel(room), TOKEN, null)
+      const agoraUid = await client.join(APP_ID, envChannel(roomArg), TOKEN, null)
       localUidRef.current = agoraUid
 
       // Build initial state — remote users get placeholder names first
-      const localUser = { uid: agoraUid, name, talking: false, isLocal: true }
+      const localUser = { uid: agoraUid, name: nameArg, talking: false, isLocal: true }
       const existingRemotes = client.remoteUsers.map((user) => ({
         uid: user.uid,
         name: `User ${user.uid}`,
@@ -193,7 +193,7 @@ export default function App() {
         rtmClientRef.current = rtmClient
         await rtmClient.login({ uid: String(agoraUid), token: null })
 
-        const rtmChannel = rtmClient.createChannel(envChannel(room))
+        const rtmChannel = rtmClient.createChannel(envChannel(roomArg))
         rtmChannelRef.current = rtmChannel
 
         // Patch placeholder name when a hello message arrives.
@@ -213,7 +213,7 @@ export default function App() {
         // Re-announce our name whenever a new member joins so they resolve us
         rtmChannel.on("MemberJoined", () => {
           rtmChannel
-            .sendMessage({ text: JSON.stringify({ type: "hello", name }) })
+            .sendMessage({ text: JSON.stringify({ type: "hello", name: nameArg }) })
             .catch(() => {})
         })
 
@@ -221,13 +221,14 @@ export default function App() {
 
         // Announce to everyone already in the channel
         rtmChannel
-          .sendMessage({ text: JSON.stringify({ type: "hello", name }) })
+          .sendMessage({ text: JSON.stringify({ type: "hello", name: nameArg }) })
           .catch(() => {})
       } catch (err) {
         console.error("RTM presence unavailable:", err)
       }
 
-      setConnectedRoom(room)
+      sessionStorage.setItem("wl_session", JSON.stringify({ name: nameArg, room: roomArg }))
+      setConnectedRoom(roomArg)
       setJoined(true)
     } catch (err) {
       console.error(err)
@@ -262,6 +263,7 @@ export default function App() {
       rawStreamRef.current = null
       audioContextRef.current?.close()
       audioContextRef.current = null
+      sessionStorage.removeItem("wl_session")
       nameCacheRef.current = {}
       localUidRef.current = null
       setTalking(false)
@@ -337,6 +339,22 @@ export default function App() {
     }
   }, [])
 
+  // Restore session on page refresh
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("wl_session")
+      if (!saved) return
+      const { name: n, room: r } = JSON.parse(saved)
+      if (n && r) {
+        setName(n)
+        setRoom(r)
+        joinRoom(n, r)
+      }
+    } catch {
+      sessionStorage.removeItem("wl_session")
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const isUserSpeaking = (user) =>
     user.isLocal ? talking : user.talking
 
@@ -366,7 +384,7 @@ export default function App() {
             />
 
             <button
-              onClick={joinRoom}
+              onClick={() => joinRoom()}
               className="w-full py-4 rounded-2xl bg-green-400 text-black font-bold tracking-[0.2em] mt-4 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               JOIN ROOM
