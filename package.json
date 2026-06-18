@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "agora-rtc-sdk-ng": "^4.24.3",
+    "agora-rtm-sdk": "^1.5.1",
     "framer-motion": "^12.39.0",
     "lucide-react": "^1.16.0",
     "react": "^19.2.6",

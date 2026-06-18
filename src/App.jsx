@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { motion } from "framer-motion"
 import AgoraRTC from "agora-rtc-sdk-ng"
+import AgoraRTM from "agora-rtm-sdk"
 
 import { APP_ID, TOKEN } from "./agora"
 
@@ -11,6 +12,11 @@ export default function App() {
   const localTrackRef = useRef(null)
   const localUidRef = useRef(null)
   const pttActiveRef = useRef(false)
+  const rtmClientRef = useRef(null)
+  const rtmChannelRef = useRef(null)
+  const nameCacheRef = useRef({})
+  const audioContextRef = useRef(null)
+  const rawStreamRef = useRef(null)
 
   const [joined, setJoined] = useState(false)
   const [talking, setTalking] = useState(false)
@@ -33,10 +39,64 @@ export default function App() {
   const startTalking = useCallback(async () => {
     try {
       if (!localTrackRef.current) {
-        const micTrack = await AgoraRTC.createMicrophoneAudioTrack()
-        localTrackRef.current = micTrack
-        await clientRef.current.publish([micTrack])
+        // Get raw mic — disable browser's basic ANS (causes robotic artifacts)
+        // and let our Web Audio chain handle noise/dynamics instead.
+        const rawStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: true,
+            sampleRate: { ideal: 48000 },
+            channelCount: { ideal: 1 },
+          },
+        })
+
+        const ctx = new AudioContext({ sampleRate: 48000 })
+
+        // 1. High-pass at 80 Hz — removes desk rumble / low-freq noise
+        const hpf = ctx.createBiquadFilter()
+        hpf.type = "highpass"
+        hpf.frequency.value = 80
+
+        // 2. Presence boost at 3 kHz — adds intelligibility / cuts muddiness
+        const presence = ctx.createBiquadFilter()
+        presence.type = "peaking"
+        presence.frequency.value = 3000
+        presence.gain.value = 6
+        presence.Q.value = 1.0
+
+        // 3. Gentle compressor — normalises volume differences between speakers
+        const comp = ctx.createDynamicsCompressor()
+        comp.threshold.value = -24
+        comp.knee.value = 30
+        comp.ratio.value = 4
+        comp.attack.value = 0.005
+        comp.release.value = 0.15
+
+        // Makeup gain: restore level after compression (+8 dB)
+        const makeup = ctx.createGain()
+        makeup.gain.value = 2.5
+
+        const dst = ctx.createMediaStreamDestination()
+        ctx.createMediaStreamSource(rawStream)
+          .connect(hpf)
+          .connect(presence)
+          .connect(comp)
+          .connect(makeup)
+          .connect(dst)
+
+        audioContextRef.current = ctx
+        rawStreamRef.current = rawStream
+
+        const processedTrack = await AgoraRTC.createCustomAudioTrack({
+          mediaStreamTrack: dst.stream.getAudioTracks()[0],
+          encoderConfig: { sampleRate: 48000, stereo: false, bitrate: 128 },
+        })
+
+        localTrackRef.current = processedTrack
+        await clientRef.current.publish([processedTrack])
       }
+
       await localTrackRef.current.setEnabled(true)
       setTalking(true)
     } catch (err) {
@@ -59,6 +119,7 @@ export default function App() {
       client.on("user-published", async (user, mediaType) => {
         await client.subscribe(user, mediaType)
         if (mediaType === "audio") {
+          user.audioTrack.setVolume(200)
           user.audioTrack.play()
         }
       })
@@ -74,16 +135,12 @@ export default function App() {
       })
 
       client.on("user-joined", (user) => {
+        const cachedName = nameCacheRef.current[String(user.uid)]
         setUsers((prev) => {
           if (prev.some((u) => u.uid === user.uid)) return prev
           return [
             ...prev,
-            {
-              uid: user.uid,
-              name: `User ${user.uid}`,
-              talking: false,
-              isLocal: false,
-            },
+            { uid: user.uid, name: cachedName || `User ${user.uid}`, talking: false, isLocal: false },
           ]
         })
       })
@@ -111,27 +168,63 @@ export default function App() {
       const agoraUid = await client.join(APP_ID, room, TOKEN, null)
       localUidRef.current = agoraUid
 
-      const localUser = {
-        uid: agoraUid,
-        name,
-        talking: false,
-        isLocal: true,
-      }
-
+      // Build initial state — remote users get placeholder names first
+      const localUser = { uid: agoraUid, name, talking: false, isLocal: true }
       const existingRemotes = client.remoteUsers.map((user) => ({
         uid: user.uid,
         name: `User ${user.uid}`,
         talking: false,
         isLocal: false,
       }))
-
       setUsers([localUser, ...existingRemotes])
 
       for (const user of client.remoteUsers) {
         if (user.hasAudio) {
           await client.subscribe(user, "audio")
+          user.audioTrack?.setVolume(200)
           user.audioTrack?.play()
         }
+      }
+
+      // RTM presence: names exchanged via channel messages (push model).
+      // Isolated so RTM failure never prevents joining the voice room.
+      try {
+        const rtmClient = AgoraRTM.createInstance(APP_ID)
+        rtmClientRef.current = rtmClient
+        await rtmClient.login({ uid: String(agoraUid), token: null })
+
+        const rtmChannel = rtmClient.createChannel(room)
+        rtmChannelRef.current = rtmChannel
+
+        // Patch placeholder name when a hello message arrives.
+        // Also write to nameCacheRef so user-joined can pick it up if it fires after this.
+        rtmChannel.on("ChannelMessage", ({ text }, senderId) => {
+          try {
+            const msg = JSON.parse(text)
+            if (msg.type === "hello" && msg.name) {
+              nameCacheRef.current[senderId] = msg.name
+              setUsers((prev) =>
+                prev.map((u) => (String(u.uid) === senderId ? { ...u, name: msg.name } : u))
+              )
+            }
+          } catch { /* ignore non-JSON */ }
+        })
+
+        // Re-announce our name whenever a new member joins so they resolve us
+        rtmChannel.on("MemberJoined", () => {
+          rtmChannel
+            .sendMessage({ text: JSON.stringify({ type: "hello", name }) })
+            .catch(() => {})
+        })
+
+        await rtmChannel.join()
+
+        // Announce to everyone already in the channel
+        rtmChannel
+          .sendMessage({ text: JSON.stringify({ type: "hello", name }) })
+          .catch(() => {})
+      } catch (err) {
+        console.error("RTM presence unavailable:", err)
       }
 
       setConnectedRoom(room)
@@ -155,6 +248,21 @@ export default function App() {
         clientRef.current = null
       }
 
+      if (rtmChannelRef.current) {
+        try { await rtmChannelRef.current.leave() } catch { /* ignore */ }
+        rtmChannelRef.current = null
+      }
+
+      if (rtmClientRef.current) {
+        try { await rtmClientRef.current.logout() } catch { /* ignore */ }
+        rtmClientRef.current = null
+      }
+
+      rawStreamRef.current?.getTracks().forEach((t) => t.stop())
+      rawStreamRef.current = null
+      audioContextRef.current?.close()
+      audioContextRef.current = null
+      nameCacheRef.current = {}
       localUidRef.current = null
       setTalking(false)
       setJoined(false)
@@ -213,6 +321,10 @@ export default function App() {
       try {
         localTrackRef.current?.close()
         clientRef.current?.leave()
+        rtmChannelRef.current?.leave()
+        rtmClientRef.current?.logout()
+        rawStreamRef.current?.getTracks().forEach((t) => t.stop())
+        audioContextRef.current?.close()
       } catch (err) {
         console.error(err)
       }
