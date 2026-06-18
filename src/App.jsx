@@ -3,7 +3,7 @@ import { motion } from "framer-motion"
 import AgoraRTC from "agora-rtc-sdk-ng"
 import AgoraRTM from "agora-rtm-sdk"
 
-import { APP_ID, TOKEN } from "./agora"
+import { APP_ID, TOKEN, envChannel } from "./agora"
 
 const VOLUME_THRESHOLD = 10
 
@@ -165,7 +165,7 @@ export default function App() {
         )
       })
 
-      const agoraUid = await client.join(APP_ID, room, TOKEN, null)
+      const agoraUid = await client.join(APP_ID, envChannel(room), TOKEN, null)
       localUidRef.current = agoraUid
 
       // Build initial state — remote users get placeholder names first
@@ -193,7 +193,7 @@ export default function App() {
         rtmClientRef.current = rtmClient
         await rtmClient.login({ uid: String(agoraUid), token: null })
 
-        const rtmChannel = rtmClient.createChannel(room)
+        const rtmChannel = rtmClient.createChannel(envChannel(room))
         rtmChannelRef.current = rtmChannel
 
         // Patch placeholder name when a hello message arrives.
