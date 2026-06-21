@@ -11,6 +11,7 @@ export default function App() {
     joined, talking,
     users, connectedRoom,
     joinRoom, leaveRoom,
+    createRoom,
     handlePttPointerDown, handlePttPointerUp,
     isUserSpeaking,
   } = useWavelink()
@@ -23,6 +24,7 @@ export default function App() {
         setName={setName}
         setRoom={setRoom}
         joinRoom={joinRoom}
+        createRoom={createRoom}
       />
     )
   }

@@ -73,6 +73,7 @@ export function useWavelink() {
       setConnectedRoom(roomArg)
       joinedAtRef.current = Date.now()
       setJoined(true)
+      history.replaceState(null, "", "?room=" + roomArg)
 
       trackEvent("join_room", "engagement", { label: roomArg })
     } catch (err) {
@@ -106,6 +107,7 @@ export function useWavelink() {
       setRoom("")
       setName("")
       setConnectedRoom("")
+      history.replaceState(null, "", "/")
     } catch (err) {
       console.error(err)
     }
@@ -148,7 +150,7 @@ export function useWavelink() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Restore session on page refresh
+  // Restore session on page refresh; also pre-fill room from invite URL
   useEffect(() => {
     if (sessionRestoredRef.current) return
     sessionRestoredRef.current = true
@@ -157,11 +159,16 @@ export function useWavelink() {
       setName(saved.name)
       setRoom(saved.room)
       joinRoom(saved.name, saved.room)
+      return
     }
+    const urlRoom = new URLSearchParams(window.location.search).get("room")
+    if (urlRoom) setRoom(urlRoom)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const isUserSpeaking = (user) => (user.isLocal ? talking : user.talking)
+
+  const createRoom = () => setRoom(Math.random().toString(36).slice(2, 8))
 
   return {
     name, setName,
@@ -169,6 +176,7 @@ export function useWavelink() {
     joined, talking,
     users, connectedRoom,
     joinRoom, leaveRoom,
+    createRoom,
     handlePttPointerDown, handlePttPointerUp,
     isUserSpeaking,
   }
