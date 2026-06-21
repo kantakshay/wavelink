@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "react"
 import { useAgoraRtc } from "./useAgoraRtc"
 import { useAgoraRtm } from "./useAgoraRtm"
 import { useSession } from "./useSession"
+import { trackEvent } from "../lib/analytics"
 
 export function useWavelink() {
   // ── PTT ref ────────────────────────────────────────────────────────────────
   const pttActiveRef = useRef(false)
+
+  // ── Session timer ref ──────────────────────────────────────────────────────
+  const joinedAtRef = useRef(null)
 
   // ── Name cache ref (bridges RTM ↔ RTC race) ───────────────────────────────
   const nameCacheRef = useRef({})
@@ -33,6 +37,7 @@ export function useWavelink() {
     if (!pttActiveRef.current) {
       pttActiveRef.current = true
       rtc.startTalking()
+      trackEvent("ptt_start", "voice", { label: connectedRoom })
     }
   }
 
@@ -41,6 +46,7 @@ export function useWavelink() {
     if (pttActiveRef.current) {
       pttActiveRef.current = false
       rtc.stopTalking()
+      trackEvent("ptt_stop", "voice", { label: connectedRoom })
     }
     try {
       e.currentTarget.releasePointerCapture(e.pointerId)
@@ -65,20 +71,34 @@ export function useWavelink() {
 
       session.save(nameArg, roomArg)
       setConnectedRoom(roomArg)
+      joinedAtRef.current = Date.now()
       setJoined(true)
+
+      trackEvent("join_room", "engagement", { label: roomArg })
     } catch (err) {
       console.error(err)
+      trackEvent("join_failure", "error", { label: err?.message ?? "unknown" })
     }
   }
 
   // ── Leave room ─────────────────────────────────────────────────────────────
   const leaveRoom = async () => {
     try {
+      const sessionSecs = joinedAtRef.current
+        ? Math.round((Date.now() - joinedAtRef.current) / 1000)
+        : 0
+
       pttActiveRef.current = false
       await rtc.disconnect()
       await rtm.disconnect()
       session.clear()
       nameCacheRef.current = {}
+      joinedAtRef.current = null
+
+      trackEvent("leave_room", "engagement", {
+        label: connectedRoom,
+        value: sessionSecs,
+      })
 
       setTalking(false)
       setJoined(false)

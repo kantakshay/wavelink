@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react"
 import { createRtcClient, joinRtcChannel, subscribeAndPlay, buildAudioChain } from "../services/rtcService"
+import { trackEvent } from "../lib/analytics"
 
 const VOLUME_THRESHOLD = 10
 
@@ -110,6 +111,11 @@ export function useAgoraRtc(pttActiveRef, setTalking) {
     } catch (err) {
       console.error("Mic Error:", err)
       pttActiveRef.current = false
+      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+        trackEvent("mic_permission_denied", "error")
+      } else {
+        trackEvent("mic_error", "error", { label: err?.name ?? "unknown" })
+      }
     }
   }, [pttActiveRef, setTalking])
 
