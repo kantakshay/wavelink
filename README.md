@@ -1,61 +1,117 @@
-to do 
+# WaveLink
 
-✅ 1. Join screen
+A push-to-talk (PTT) walkie-talkie web app built with React, Vite, and Agora.
 
-Users need:
+## Features
 
-name input
-room input
-join button
+- Push-to-talk voice transmission with hold-to-talk button
+- Real-time participant list with active speaker indicator
+- Automatic session restore on page refresh
+- Room isolation — join any named room independently
+- Half-duplex audio with custom Web Audio processing pipeline
+- Responsive layout for desktop and mobile browsers
 
-That’s it.
+## Tech Stack
 
-Example:
+- **React 18 + Vite** — UI and build
+- **Agora RTC SDK** (`agora-rtc-sdk-ng`) — audio streaming
+- **Agora RTM SDK** (`agora-rtm-sdk`) — presence and username sharing
+- **Web Audio API** — custom send-side DSP (HPF + Presence EQ + Compressor + Gain)
+- **Framer Motion** — animations
+- **Tailwind CSS** — styling
 
-Name: Jordan
-Room: squad
-[ JOIN ]
+## Project Structure
 
-This is mandatory.
+```
+src/
+├── App.jsx                    # Root component
+├── agora.js                   # APP_ID, TOKEN, envChannel()
+├── services/
+│   ├── rtcService.js          # Pure Agora RTC functions (no React)
+│   └── rtmService.js          # Pure Agora RTM functions (no React)
+├── hooks/
+│   ├── useAgoraRtc.js         # RTC client + Web Audio chain
+│   ├── useAgoraRtm.js         # RTM presence / username sharing
+│   ├── useSession.js          # sessionStorage save / restore
+│   └── useWavelink.js         # Main orchestrator hook
+└── components/
+    ├── JoinScreen.jsx          # Name + room input form
+    ├── Header.jsx              # Room info + LEAVE button
+    ├── UserList.jsx            # List of connected users
+    ├── UserCard.jsx            # Single user with speaking state
+    └── PushToTalkButton.jsx    # Hold-to-talk button
+```
 
-Without this:
-people can’t really use the app naturally.
+## Getting Started
 
-✅ 2. Real participant list
+### 1. Clone and install
 
-Right now:
-fake users.
+```bash
+git clone https://github.com/kantakshay/wavelink.git
+cd wavelink
+npm install
+```
 
-Need:
+### 2. Configure Agora
 
-actual joined users
-dynamic rendering
-leave/join updates
+Edit `src/agora.js` and set your Agora App ID:
 
-This is CORE MVP functionality.
+```js
+export const APP_ID = "your-agora-app-id"
+export const TOKEN = null  // set if token auth is enabled
+```
 
-✅ 3. Active speaker glow
+### 3. Run locally
 
-VERY important psychologically.
+```bash
+npm run dev
+```
 
-When someone talks:
+To test on a phone on the same network:
 
-ring glows
-maybe subtle pulse
+```bash
+npm run dev -- --host
+```
 
-This makes the room feel alive.
+Then open `http://<your-local-ip>:5173` on the phone.
 
-Without it:
-the app feels broken even if audio works.
+### 4. Build for production
 
-✅ 4. Mobile layout
+```bash
+npm run build
+```
 
-Not native app.
+## Audio Pipeline
 
-Just:
+The send-side audio chain (in `rtcService.buildAudioChain`):
 
-responsive web app
+```
+getUserMedia (noiseSuppression: false)
+  → High-pass filter @ 80 Hz        (removes rumble)
+  → Presence EQ @ 3 kHz +6 dB       (voice clarity)
+  → DynamicsCompressor               (even volume)
+  → Makeup gain ×2.5                 (loudness)
+  → createCustomAudioTrack @ 128 kbps
+```
 
-Most people will open on phones.
+Receive side: `setVolume(200)` on all remote tracks.
 
-This is enough for MVP.
+> `noiseSuppression: false` is required — browser ANS fights the compressor and causes robotic artifacts when both are active.
+
+## Environment Isolation
+
+Channels are prefixed with `dev_` in development to prevent local testing from bleeding into production rooms:
+
+```js
+export const envChannel = (room) =>
+  import.meta.env.DEV ? `dev_${room}` : room
+```
+
+## Rollback
+
+If anything breaks after a push:
+
+```bash
+git revert HEAD --no-edit
+git push origin main
+```
