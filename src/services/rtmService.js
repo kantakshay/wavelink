@@ -18,3 +18,9 @@ export function sendHello(channel, name) {
     .sendMessage({ text: JSON.stringify({ type: "hello", name }) })
     .catch(() => {})
 }
+
+export function sendPeerMessage(rtmClient, targetUid, payload) {
+  rtmClient
+    ?.sendMessageToPeer({ text: JSON.stringify(payload) }, String(targetUid))
+    .catch(() => {})
+}
