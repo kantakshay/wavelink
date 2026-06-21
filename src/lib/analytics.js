@@ -1,11 +1,7 @@
-import ReactGA from "react-ga4"
-
-export const initAnalytics = () => {
-  const measurementId = import.meta.env.VITE_GA_MEASUREMENT_ID
-  if (!measurementId) return
-  ReactGA.initialize(measurementId)
+const gtag = (...args) => {
+  if (typeof window.gtag === "function") window.gtag(...args)
 }
 
 export const trackEvent = (action, category, params = {}) => {
-  ReactGA.event({ action, category, ...params })
+  gtag("event", action, { event_category: category, ...params })
 }
